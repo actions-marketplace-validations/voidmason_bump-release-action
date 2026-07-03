@@ -16,6 +16,10 @@ inputs:
     description: "Create a GitHub release for the pushed tag (true/false)."
     required: false
     default: "true"
+  prerelease:
+    description: "Publish pre-release tags as GitHub pre-releases too (true/false)."
+    required: false
+    default: "false"
   name:
     description: "Committer name for the bump commit and tag."
     required: false
@@ -107,9 +111,18 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.token }}
         TAG: ${{ steps.tag.outputs.tag }}
+        PRERELEASE: ${{ inputs.prerelease }}
       run: |
         set -euo pipefail
-        FLAGS="--generate-notes"
-        # A pre-release tag carries a `-beta.N` suffix; mark the release accordingly.
-        case "$TAG" in *-*) FLAGS="$FLAGS --prerelease" ;; esac
-        gh release create "$TAG" $FLAGS
+        # A `-beta.N` tag is an intermediate of the beta series: by default it
+        # stays a plain tag and the finalize release covers the whole series.
+        # prerelease: true opts in to publishing each one as a pre-release.
+        case "$TAG" in
+          *-*)
+            if [ "$PRERELEASE" = "true" ]; then
+              gh release create "$TAG" --generate-notes --prerelease
+            else
+              echo "pre-release $TAG: skipping the GitHub release"
+            fi ;;
+          *) gh release create "$TAG" --generate-notes ;;
+        esac

@@ -14,8 +14,10 @@ Runs on the current branch of the calling workflow:
 2. commits every touched manifest and `Cargo.lock` as
    `Bump version to vX.Y.Z` (plus an optional note);
 3. tags `vX.Y.Z` and pushes the branch with the tag;
-4. creates a GitHub release with generated notes (`--prerelease` when the
-   version carries a pre-release suffix).
+4. creates a GitHub release with generated notes. By default only final
+   versions are released - a pre-release is just tagged, and the `finalize`
+   release covers the whole beta series; `prerelease: true` opts in to
+   publishing beta tags as GitHub pre-releases.
 
 Supported actions:
 
@@ -68,7 +70,8 @@ jobs:
 | `token`       | yes      | PAT, see below.                                            |
 | `version`     | yes      | One of the actions above.                                  |
 | `commit_note` | no       | Text appended to the bump commit message. Default empty.   |
-| `release`     | no       | Create a GitHub release for the tag. Default `true`.       |
+| `release`     | no       | Create a release for a final version tag. Default `true`.  |
+| `prerelease`  | no       | Publish beta tags as pre-releases too. Default `false`.    |
 | `name`        | no       | Committer name. Default `nerjs`.                           |
 | `email`       | no       | Committer email. Default `nerjs@users.noreply.github.com`. |
 
