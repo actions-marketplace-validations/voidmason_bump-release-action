@@ -1,0 +1,115 @@
+name: "Bump and release"
+description: "Bump the cargo workspace version, commit, tag, push, and optionally create a GitHub release. Installs cargo-edit itself; needs cargo, jq and gh on the runner."
+
+inputs:
+  token:
+    description: "PAT with contents:write; used for checkout, push and the release."
+    required: true
+  version:
+    description: "Bump action: patch, minor, major, beta, beta-minor, beta-major or finalize."
+    required: true
+  commit_note:
+    description: "Optional text appended to the bump commit message."
+    required: false
+    default: ""
+  release:
+    description: "Create a GitHub release for the pushed tag (true/false)."
+    required: false
+    default: "true"
+  name:
+    description: "Committer name for the bump commit and tag."
+    required: false
+    default: "nerjs"
+  email:
+    description: "Committer email for the bump commit and tag."
+    required: false
+    default: "nerjs@users.noreply.github.com"
+
+outputs:
+  version:
+    description: "The version after the bump (e.g. 1.2.3-beta.1)."
+    value: ${{ steps.ver.outputs.next }}
+  tag:
+    description: "The pushed tag (e.g. v1.2.3-beta.1)."
+    value: ${{ steps.tag.outputs.tag }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v7
+      with:
+        # PAT so the bump commit can be pushed to a protected branch.
+        # GITHUB_TOKEN (github-actions[bot]) cannot bypass branch rules.
+        token: ${{ inputs.token }}
+        # Keep the PAT out of .git/config for later steps; the push step
+        # passes it explicitly. fetch-depth 0 already brings every tag.
+        persist-credentials: false
+        fetch-depth: 0
+
+    - uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-edit
+
+    # Inputs are bound through env, never interpolated into the shell.
+    # GIT_CONFIG_GLOBAL/SYSTEM are pinned to /dev/null on every git step, so
+    # runner-side config cannot leak into the bump commit or the pushes.
+    - id: ver
+      shell: bash
+      env:
+        ACTION: ${{ inputs.version }}
+        NAME: ${{ inputs.name }}
+        EMAIL: ${{ inputs.email }}
+        ACTION_PATH: ${{ github.action_path }}
+        GIT_CONFIG_GLOBAL: /dev/null
+        GIT_CONFIG_SYSTEM: /dev/null
+      run: |
+        set -euo pipefail
+        git config user.name "$NAME"
+        git config user.email "$EMAIL"
+        "$ACTION_PATH/bump-version.sh" "$ACTION"
+
+    - shell: bash
+      env:
+        NEXT_VERSION: ${{ steps.ver.outputs.next }}
+        COMMIT_NOTE: ${{ inputs.commit_note }}
+        GIT_CONFIG_GLOBAL: /dev/null
+        GIT_CONFIG_SYSTEM: /dev/null
+      run: |
+        set -euo pipefail
+        MSG="Bump version to v${NEXT_VERSION}"
+        if [ -n "$COMMIT_NOTE" ]; then
+          MSG="${MSG}"$'\n\n'"${COMMIT_NOTE}"
+        fi
+        # Stage every manifest the bump touched - root plus all workspace
+        # members - and Cargo.lock. -u is limited to tracked files, so the
+        # clean CI checkout never stages build artifacts.
+        git add -u
+        git commit -m "$MSG"
+
+    - id: tag
+      shell: bash
+      env:
+        NEXT_VERSION: ${{ steps.ver.outputs.next }}
+        BRANCH: ${{ github.ref_name }}
+        REPO: ${{ github.repository }}
+        TOKEN: ${{ inputs.token }}
+        GIT_CONFIG_GLOBAL: /dev/null
+        GIT_CONFIG_SYSTEM: /dev/null
+      run: |
+        set -euo pipefail
+        TAG="v${NEXT_VERSION}"
+        git tag -a "$TAG" -m "$TAG"
+        git push "https://x-access-token:${TOKEN}@github.com/${REPO}.git" "$BRANCH" --follow-tags
+        echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+    - if: inputs.release == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        TAG: ${{ steps.tag.outputs.tag }}
+      run: |
+        set -euo pipefail
+        FLAGS="--generate-notes"
+        # A pre-release tag carries a `-beta.N` suffix; mark the release accordingly.
+        case "$TAG" in *-*) FLAGS="$FLAGS --prerelease" ;; esac
+        gh release create "$TAG" $FLAGS
