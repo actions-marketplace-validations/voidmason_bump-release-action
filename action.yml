@@ -1,5 +1,5 @@
 name: "Bump and release"
-description: "Bump the cargo workspace version, commit, tag, push, and optionally create a GitHub release. Installs cargo-edit itself; needs cargo, jq and gh on the runner."
+description: "Bump the cargo workspace version, commit, tag, push, and optionally create a GitHub release. Installs cargo-edit itself; needs cargo, jq, gh and git on the runner."
 
 inputs:
   token:
@@ -40,13 +40,27 @@ outputs:
 runs:
   using: composite
   steps:
+    # A dispatch from a tag runs on a detached HEAD:
+    # the branch push silently becomes "Everything up-to-date",
+    # the bump commit is lost, and the run still ends green.
+    - shell: bash
+      env:
+        REF_TYPE: ${{ github.ref_type }}
+        REF_NAME: ${{ github.ref_name }}
+      run: |
+        set -euo pipefail
+        if [ "$REF_TYPE" != "branch" ]; then
+          echo "::error::the bump needs a branch to push to, got $REF_TYPE '$REF_NAME'"
+          exit 1
+        fi
+
     - uses: actions/checkout@v7
       with:
         # PAT so the bump commit can be pushed to a protected branch.
         # GITHUB_TOKEN (github-actions[bot]) cannot bypass branch rules.
         token: ${{ inputs.token }}
-        # Keep the PAT out of .git/config for later steps; the push step
-        # passes it explicitly. fetch-depth 0 already brings every tag.
+        # Keep the PAT out of .git/config; the push step passes it via env.
+        # fetch-depth 0 already brings every tag.
         persist-credentials: false
         fetch-depth: 0
 
@@ -54,22 +68,28 @@ runs:
       with:
         tool: cargo-edit
 
-    # Inputs are bound through env, never interpolated into the shell.
-    # GIT_CONFIG_GLOBAL/SYSTEM are pinned to /dev/null on every git step, so
-    # runner-side config cannot leak into the bump commit or the pushes.
-    - id: ver
-      shell: bash
+    # Inputs reach the shell only through env, never ${{ }} interpolation,
+    # so a crafted input cannot inject into the run scripts.
+    # GIT_CONFIG_GLOBAL/SYSTEM are pinned to /dev/null on every git step,
+    # so runner-side config cannot leak into the commit or the pushes.
+    - shell: bash
       env:
-        ACTION: ${{ inputs.version }}
         NAME: ${{ inputs.name }}
         EMAIL: ${{ inputs.email }}
-        ACTION_PATH: ${{ github.action_path }}
         GIT_CONFIG_GLOBAL: /dev/null
         GIT_CONFIG_SYSTEM: /dev/null
       run: |
         set -euo pipefail
         git config user.name "$NAME"
         git config user.email "$EMAIL"
+
+    - id: ver
+      shell: bash
+      env:
+        ACTION: ${{ inputs.version }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
         "$ACTION_PATH/bump-version.sh" "$ACTION"
 
     - shell: bash
@@ -84,9 +104,8 @@ runs:
         if [ -n "$COMMIT_NOTE" ]; then
           MSG="${MSG}"$'\n\n'"${COMMIT_NOTE}"
         fi
-        # Stage every manifest the bump touched - root plus all workspace
-        # members - and Cargo.lock. -u is limited to tracked files, so the
-        # clean CI checkout never stages build artifacts.
+        # -u stages only tracked files - the touched manifests and Cargo.lock -
+        # so nothing stray from the runner slips into the bump commit.
         git add -u
         git commit -m "$MSG"
 
@@ -103,26 +122,30 @@ runs:
         set -euo pipefail
         TAG="v${NEXT_VERSION}"
         git tag -a "$TAG" -m "$TAG"
-        git push "https://x-access-token:${TOKEN}@github.com/${REPO}.git" "$BRANCH" --follow-tags
+        # The credential helper reads the PAT from env: it never shows in argv.
+        # --atomic pushes the branch and the tag together or not at all,
+        # and a tag that already exists on the remote fails loud here.
+        git -c credential.helper='!f() { echo "username=x-access-token"; echo "password=${TOKEN}"; }; f' \
+          push --atomic "https://github.com/${REPO}.git" "$BRANCH" "refs/tags/$TAG"
         echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
     - if: inputs.release == 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
+        GH_REPO: ${{ github.repository }}
         TAG: ${{ steps.tag.outputs.tag }}
         PRERELEASE: ${{ inputs.prerelease }}
       run: |
         set -euo pipefail
-        # A `-beta.N` tag is an intermediate of the beta series: by default it
-        # stays a plain tag and the finalize release covers the whole series.
-        # prerelease: true opts in to publishing each one as a pre-release.
+        # Only final tags get a release by default;
+        # the finalize release covers the whole beta series.
         case "$TAG" in
           *-*)
             if [ "$PRERELEASE" = "true" ]; then
-              gh release create "$TAG" --generate-notes --prerelease
+              gh release create "$TAG" --verify-tag --generate-notes --prerelease
             else
               echo "pre-release $TAG: skipping the GitHub release"
             fi ;;
-          *) gh release create "$TAG" --generate-notes ;;
+          *) gh release create "$TAG" --verify-tag --generate-notes ;;
         esac

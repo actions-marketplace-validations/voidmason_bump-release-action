@@ -7,7 +7,8 @@ automated.
 
 ## What it does
 
-Runs on the current branch of the calling workflow:
+Runs on the current branch of the calling workflow (a run from a tag or a
+detached HEAD is refused):
 
 1. bumps the version with `cargo set-version --workspace` according to the
    requested action;
@@ -49,9 +50,6 @@ on:
         type: string
         default: ""
 
-permissions:
-  contents: write
-
 jobs:
   bump:
     runs-on: ubuntu-latest
@@ -62,6 +60,12 @@ jobs:
           version: ${{ inputs.version }}
           commit_note: ${{ inputs.commit_note }}
 ```
+
+The example is the bare minimum. In a real pipeline gate the bump behind CI:
+put your checks and tests into jobs the `bump` job `needs`, so a release
+cannot be cut from a commit that never passed them. No `permissions` block is
+needed: every write goes through the PAT, the default `GITHUB_TOKEN` stays
+unused.
 
 ## Inputs
 
@@ -91,6 +95,13 @@ to the release branch, which is usually protected, and `GITHUB_TOKEN`
 publishing, for example). Contents: read+write is enough; the same token
 creates the release, so the release is authored by the PAT owner.
 
+## If the release step fails
+
+The push and the release are separate steps. When the release step fails
+after the tag is already pushed, do not rerun the workflow: a rerun bumps a
+new version instead of finishing the old one. Create the missing release by
+hand: `gh release create <tag> --generate-notes`.
+
 ## Requirements
 
 - The runner needs `cargo`, `jq`, `gh` and `git`; `ubuntu-latest` ships all
@@ -98,6 +109,8 @@ creates the release, so the release is authored by the PAT owner.
 - The workspace must have a root package: the current version is read via
   `cargo read-manifest`, which does not work in a virtual workspace
   (workspace without a root `[package]`).
+- Every member must carry the same version as the root package - the tag is
+  cut from the root version. The bump fails loud on a mismatch.
 
 ## License
 

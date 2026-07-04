@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Harness for bump-version.sh. Spins up throwaway cargo packages and
-# workspaces in a temp dir, runs each bump action and checks the resulting
-# version, the exit code and the next= line in GITHUB_OUTPUT. No GitHub
-# needed. Requires cargo, cargo-edit (cargo set-version) and jq.
+# Harness for bump-version.sh.
+# Spins up throwaway cargo packages and workspaces in a temp dir,
+# runs each bump action and checks the resulting version,
+# the exit code and the next= line in GITHUB_OUTPUT.
+# No GitHub needed. Requires cargo, cargo-edit (cargo set-version) and jq.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,15 +25,21 @@ check() { # description expected actual
 
 RC_FILE="$TMP/rc"
 run_bump() { # action -> prints next; exit code into $RC_FILE
-  # rc goes to a file, not a variable: run_bump is called from $(...), and a
-  # subshell assignment would not reach the parent.
-  local out log
+  # rc goes to a file: run_bump is called from $(...),
+  # so an assignment inside would never reach the parent shell.
+  local out log rc
   out="$(mktemp)"
   log="$(mktemp)"
   set +e
   GITHUB_OUTPUT="$out" "$BUMP" "$1" > "$log" 2>&1
-  echo $? > "$RC_FILE"
+  rc=$?
   set -e
+  echo "$rc" > "$RC_FILE"
+  # The script log goes to stderr on failure: stdout is reserved for next=,
+  # and without this a broken run leaves nothing to diagnose.
+  if [ "$rc" -ne 0 ]; then
+    cat "$log" >&2
+  fi
   sed -n 's/^next=//p' "$out" | tail -n1
   rm -f "$out" "$log"
 }
@@ -95,13 +102,13 @@ check "finalize" 1.2.0 "$(run_bump finalize)"
 
 echo "scenario: finalize with no pre-release fails loud"
 new_package "$TMP/finalize-noop" 1.2.0
-v="$(run_bump finalize)"
+v="$(run_bump finalize 2> /dev/null)"
 check "no next output" "" "$v"
 check "non-zero exit" nonzero "$([ "$(cat "$RC_FILE")" -ne 0 ] && echo nonzero || echo zero)"
 
 echo "scenario: unknown action fails loud"
 new_package "$TMP/unknown" 0.1.0
-v="$(run_bump frobnicate)"
+v="$(run_bump frobnicate 2> /dev/null)"
 check "no next output" "" "$v"
 check "non-zero exit" nonzero "$([ "$(cat "$RC_FILE")" -ne 0 ] && echo nonzero || echo zero)"
 check "version untouched" 0.1.0 "$(manifest_ver Cargo.toml)"
@@ -111,6 +118,28 @@ new_workspace "$TMP/ws" 0.1.0
 check "root" 0.1.1 "$(run_bump patch)"
 check "member" 0.1.1 "$(manifest_ver member/Cargo.toml)"
 check "lock consistent" ok "$(cargo metadata --format-version 1 --locked > /dev/null 2>&1 && echo ok || echo fail)"
+
+echo "scenario: virtual workspace fails loud"
+rm -rf "$TMP/virtual"
+mkdir -p "$TMP/virtual/member/src"
+cd "$TMP/virtual"
+printf '[workspace]\nmembers = ["member"]\n' > Cargo.toml
+printf '[package]\nname = "member"\nversion = "0.1.0"\nedition = "2021"\n' > member/Cargo.toml
+echo '' > member/src/lib.rs
+cargo generate-lockfile > /dev/null 2>&1
+v="$(run_bump patch 2> /dev/null)"
+check "no next output" "" "$v"
+check "non-zero exit" nonzero "$([ "$(cat "$RC_FILE")" -ne 0 ] && echo nonzero || echo zero)"
+
+echo "scenario: mismatched member version fails loud"
+new_workspace "$TMP/mismatch" 0.1.0
+printf '[package]\nname = "member"\nversion = "0.2.0"\nedition = "2021"\n' > member/Cargo.toml
+cargo generate-lockfile > /dev/null 2>&1
+v="$(run_bump patch 2> /dev/null)"
+check "no next output" "" "$v"
+check "non-zero exit" nonzero "$([ "$(cat "$RC_FILE")" -ne 0 ] && echo nonzero || echo zero)"
+check "root untouched" 0.1.0 "$(manifest_ver Cargo.toml)"
+check "member untouched" 0.2.0 "$(manifest_ver member/Cargo.toml)"
 
 echo
 echo "total: pass=$pass fail=$fail"
