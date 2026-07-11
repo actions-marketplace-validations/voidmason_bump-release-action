@@ -54,7 +54,7 @@ jobs:
   bump:
     runs-on: ubuntu-latest
     steps:
-      - uses: nerjs/bump-release-action@v1
+      - uses: voidmason/bump-release-action@v1
         with:
           token: ${{ secrets.RELEASE_TOKEN }}
           version: ${{ inputs.version }}
