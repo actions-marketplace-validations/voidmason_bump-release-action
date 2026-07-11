@@ -1,6 +1,10 @@
 name: "Bump and release"
 description: "Bump the cargo workspace version, commit, tag, push, and optionally create a GitHub release. Installs cargo-edit itself; needs cargo, jq, gh and git on the runner."
 
+branding:
+  icon: 'corner-right-up'
+  color: 'black'
+
 inputs:
   token:
     description: "PAT with contents:write; used for checkout, push and the release."
@@ -23,11 +27,11 @@ inputs:
   name:
     description: "Committer name for the bump commit and tag."
     required: false
-    default: "nerjs"
+    default: "voidmason"
   email:
     description: "Committer email for the bump commit and tag."
     required: false
-    default: "nerjs@users.noreply.github.com"
+    default: "voidmason@users.noreply.github.com"
 
 outputs:
   version:

@@ -76,8 +76,8 @@ unused.
 | `commit_note` | no       | Text appended to the bump commit message. Default empty.   |
 | `release`     | no       | Create a release for a final version tag. Default `true`.  |
 | `prerelease`  | no       | Publish beta tags as pre-releases too. Default `false`.    |
-| `name`        | no       | Committer name. Default `nerjs`.                           |
-| `email`       | no       | Committer email. Default `nerjs@users.noreply.github.com`. |
+| `name`        | no       | Committer name. Default `voidmason`.                           |
+| `email`       | no       | Committer email. Default `voidmason@users.noreply.github.com`. |
 
 ## Outputs
 
