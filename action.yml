@@ -1,5 +1,5 @@
-name: "Bump and release"
-description: "Bump the cargo workspace version, commit, tag, push, and optionally create a GitHub release. Installs cargo-edit itself; needs cargo, jq, gh and git on the runner."
+name: "void rust bump"
+description: "Bump the cargo workspace version, commit, tag, push, and optionally create a GitHub release."
 
 branding:
   icon: 'corner-right-up'
