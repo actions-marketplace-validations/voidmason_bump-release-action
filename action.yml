@@ -58,7 +58,7 @@ runs:
           exit 1
         fi
 
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@v7.0.0
       with:
         # PAT so the bump commit can be pushed to a protected branch.
         # GITHUB_TOKEN (github-actions[bot]) cannot bypass branch rules.
