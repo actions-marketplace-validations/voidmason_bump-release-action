@@ -13,8 +13,8 @@ jobs:
   harness:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: taiki-e/install-action@v2.86.3
+      - uses: actions/checkout@v7.0.1
+      - uses: taiki-e/install-action@v2.87.6
         with:
           tool: cargo-edit
       - run: bash test/test-bump-version.sh

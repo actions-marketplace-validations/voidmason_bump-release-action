@@ -58,7 +58,7 @@ runs:
           exit 1
         fi
 
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@v7.0.1
       with:
         # PAT so the bump commit can be pushed to a protected branch.
         # GITHUB_TOKEN (github-actions[bot]) cannot bypass branch rules.
@@ -68,7 +68,7 @@ runs:
         persist-credentials: false
         fetch-depth: 0
 
-    - uses: taiki-e/install-action@v2.86.3
+    - uses: taiki-e/install-action@v2.87.6
       with:
         tool: cargo-edit
 
